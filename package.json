@@ -1,18 +1,28 @@
 {
-	"name": "mocha-sauce",
-	"version": "0.0.5",
-	"description": "Really fancy Mocha tests in the cloud with Saucelabs",
-	"keywords": ["mocha", "test", "tdd", "bdd", "saucelabs", "selenium", "cloud", "testing"],
-	"author": "Paul Bakaus <pbakaus@zynga.com>",
-	"dependencies": {
-		"mocha": "*",
-		"max-component": "*",
-		"sum-component": "*",
-		"term-canvas": "*",
-		"wd": "*",
-		"request": "*",
-		"debug": "*",
-		"batch": "*"
-	},
-	"main": "index"
+  "name": "mocha-sauce",
+  "version": "0.0.5",
+  "description": "Really fancy Mocha tests in the cloud with Saucelabs",
+  "keywords": [
+    "mocha",
+    "test",
+    "tdd",
+    "bdd",
+    "saucelabs",
+    "selenium",
+    "cloud",
+    "testing"
+  ],
+  "author": "Paul Bakaus <pbakaus@zynga.com>",
+  "dependencies": {
+    "batch": "^0.5.1",
+    "debug": "^2.1.0",
+    "max-component": "^1.0.0",
+    "mocha": "^2.0.1",
+    "request": "^2.45.0",
+    "sum-component": "^0.1.1",
+    "term-canvas": "0.0.5",
+    "wd": "^0.3.9"
+  },
+  "main": "index",
+  "devDependencies": {}
 }
