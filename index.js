@@ -129,7 +129,7 @@ MochaSauce.prototype.start = function(fn) {
 							}
 
 							if (err) {
-                                console.error("Failed to eval window.chocoReady", err);
+                                console.error("Failed to eval window.chocoReady: ", err);
                                 done(err);
                                 return;
                             }
@@ -137,7 +137,7 @@ MochaSauce.prototype.start = function(fn) {
 
 							browser.eval('JSON.stringify(window.mochaResults)', function(err, res) {
 								if (err) {
-                                    console.error("Failed to JSON.stringify(window.mochaResults)", err);
+                                    console.error("Failed to JSON.stringify(window.mochaResults): ", err);
                                     done(err);
                                     return;
                                 }
@@ -170,8 +170,8 @@ MochaSauce.prototype.start = function(fn) {
 									headers: {'Content-Type': 'application/json'},
 									body: JSON.stringify(data)
 								}, function (err, response, body) {
-                                    if (error) {
-                                        console.error("SauceLabs PUT failed", err);
+                                    if (err) {
+                                        console.error("Failed to update Sauce Labs job: ", err);
                                         done(err);
                                         return;
                                     }
