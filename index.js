@@ -142,7 +142,12 @@ MochaSauce.prototype.start = function(fn) {
                 // add browser conf to be able to identify in the end callback
                 res.browser = conf;
 
-                debug('results %j', res);
+                debug("Mocha results: suites: %i, tests: %i, passes: %i, pending: %i, failures: %i",
+                  res.suites,
+                  res.tests,
+                  res.passes,
+                  res.pending,
+                  res.failures);
 
                 // update Sauce Labs with custom test data
                 var data = {
@@ -151,18 +156,22 @@ MochaSauce.prototype.start = function(fn) {
                 };
 
                 // Only set custom-data if it is small enough (otherwise will fail in SauceLabs)
+                /*
                 if (Buffer.byteLength(JSON.stringify(res.jsonReport), 'utf8') < 30000) {
                   data['custom-data'] = { mocha: res.jsonReport };
                 }
+                */
+
+                var body = JSON.stringify(data);
 
                 var uri = ["https://", self.user, ":", self.key, "@saucelabs.com/rest", "/v1/", self.user, "/jobs/", browser.sessionID].join('');
-                debug('Updating Sauce Labs job: %s - %s', uri, JSON.stringify(data));
+                debug('Updating Sauce Labs job: %s - %s', uri, body);
 
                 request({
                   method: "PUT",
                   uri: uri,
                   headers: {'Content-Type': 'application/json'},
-                  body: JSON.stringify(data)
+                  body: body
                 }, function (err, response, body) {
                   if (err) {
                     debug("Failed to update Sauce Labs job: ", err);
@@ -170,9 +179,11 @@ MochaSauce.prototype.start = function(fn) {
                     return;
                   }
 
+                  debug("Updated Sauce Labs job");
+
                   self.emit('end', conf, res);
 
-                  debug("Quitting browser: " + conf.browserName);
+                  debug("Quitting browser: %s - %s", conf.browserName, conf.platform);
 
                   browser.quit(function(err) {
                     if (err) {
@@ -180,6 +191,8 @@ MochaSauce.prototype.start = function(fn) {
                       done(err);
                       return;
                     }
+
+                    debug("Browser quit succeeded - done with job");
 
                     done(null, res);
                   });
