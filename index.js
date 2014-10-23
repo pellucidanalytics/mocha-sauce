@@ -9,199 +9,193 @@
  */
 
 var wd = require('wd'),
-	Emitter = require('events').EventEmitter,
-	debug = require('debug')('mocha-sauce'),
-	Batch = require('batch'),
-	request = require('request');
+  Emitter = require('events').EventEmitter,
+  debug = require('debug')('mocha-sauce'),
+  Batch = require('batch'),
+  request = require('request');
 
 function MochaSauce(conf) {
+  this.name = conf.name;
+  this.user = conf.username || process.env.SAUCE_USER_NAME || process.env.SAUCE_USERNAME;
+  this.key = conf.accessKey || process.env.SAUCE_API_KEY || process.env.SAUCE_ACCESS_KEY;
+  this.host = conf.host || process.env.SELENIUM_HOST || "ondemand.saucelabs.com";
+  this.port = conf.port || process.env.SELENIUM_PORT || 80;
+  this.public = conf.public || 'public';
 
-	this.name = conf.name;
-	this.user = conf.username || process.env.SAUCE_USER_NAME || process.env.SAUCE_USERNAME;
-	this.key = conf.accessKey || process.env.SAUCE_API_KEY || process.env.SAUCE_ACCESS_KEY;
-	this.host = conf.host || process.env.SELENIUM_HOST || "ondemand.saucelabs.com";
-	this.port = conf.port || process.env.SELENIUM_PORT || 80;
-    this.public = conf.public || 'public';
+  this.browsers = [];
 
-	this.browsers = [];
-
-	this._url = conf.url || '';
-	this._concurrency = 2;
-	this.tags = conf.tags || [];
-	this.build = conf.build || '';
-	this._video = false;
-	this._screenshots = false;
-
+  this._url = conf.url || '';
+  this._concurrency = 2;
+  this.tags = conf.tags || [];
+  this.build = conf.build || '';
+  this._video = false;
+  this._screenshots = false;
 }
 
 MochaSauce.prototype.__proto__ = Emitter.prototype;
 
 MochaSauce.prototype.build = function(build) {
-	this.build = build;
-	return this;
+  this.build = build;
+  return this;
 };
 
 MochaSauce.prototype.tags = function(tags) {
-	this.tags = tags;
-	return this;
+  this.tags = tags;
+  return this;
 };
 
 MochaSauce.prototype.url = function(url) {
-	this._url = url;
-	return this;
+  this._url = url;
+  return this;
 };
 
 MochaSauce.prototype.concurrency = function(num) {
-	this._concurrency = num;
-	return this;
+  this._concurrency = num;
+  return this;
 };
 
 MochaSauce.prototype.record = function(video, screenshots) {
+  if(screenshots === undefined) {
+    screenshots = video;
+  }
 
-	if(screenshots === undefined) {
-		screenshots = video;
-	}
+  this._video = video;
+  this._screenshots = screenshots;
 
-	this._video = video;
-	this._screenshots = screenshots;
-
-	return this;
+  return this;
 };
 
 MochaSauce.prototype.browser = function(conf) {
-	debug('add %s %s %s', conf.browserName || conf.app, conf.version, conf.platform);
-	conf.version = conf.version || '';
-	this.browsers.push(conf);
+  debug('add %s %s %s', conf.browserName || conf.app, conf.version, conf.platform);
+  conf.version = conf.version || '';
+  this.browsers.push(conf);
 };
 
 MochaSauce.prototype.start = function(fn) {
 
-	var self = this;
-	var batch = new Batch();
-	fn = fn || function() {};
+  var self = this;
+  var batch = new Batch();
+  fn = fn || function() {};
 
-	batch.concurrency(this._concurrency);
+  batch.concurrency(this._concurrency);
 
-	this.browsers.forEach(function(conf) {
-		conf.tags = self.tags;
-		conf.name = self.name;
-		conf.build = self.build;
+  this.browsers.forEach(function(conf) {
+    conf.tags = self.tags;
+    conf.name = self.name;
+    conf.build = self.build;
+    conf['record-video'] = self._video;
+    conf['record-screenshots'] = self._screenshots;
 
-		// disable Sauce features not needed for unit tests (video + screenshot recording)
-		conf['record-video'] = self._video;
-		conf['record-screenshots'] = self._screenshots;
+    debug("Adding browser: " + conf.browserName);
 
-        console.log("Adding browser: " + conf.browserName);
+    batch.push(function(done) {
 
-		batch.push(function(done) {
+      // initialize remote connection to Sauce Labs
+      debug('running %s %s %s', conf.browserName || conf.app, conf.version, conf.platform);
 
-			// initialize remote connection to Sauce Labs
-			debug('running %s %s %s', conf.browserName || conf.app, conf.version, conf.platform);
+      var browser = wd.remote(self.host, self.port, self.user, self.key);
 
-			var browser = wd.remote(self.host, self.port, self.user, self.key);
+      self.emit('init', conf);
 
-			self.emit('init', conf);
+      browser.init(conf, function() {
 
-			browser.init(conf, function() {
+        debug('Getting url: %s', self._url);
 
-				debug('Getting url: %s', self._url);
+        self.emit('start', conf);
 
-				self.emit('start', conf);
+        // load the test site
+        browser.get(self._url, function(err) {
+          if (err) {
+            debug("Failed to get URL: " + self._url, err);
+            done(err);
+            return;
+          }
 
-				// load the test site
-				browser.get(self._url, function(err) {
-					if (err) {
-                        console.error("Failed to get URL: " + self._url, err);
-                        done(err);
-                        return;
+          // wait until choco is ready
+          function doItAgain() {
+
+            browser.eval('window.chocoReady', function(err, res) {
+
+              if (res !== true) {
+                setTimeout(function() {
+                  doItAgain();
+                }, 1000);
+                return;
+              }
+
+              if (err) {
+                debug("Failed to eval window.chocoReady: ", err);
+                done(err);
+                return;
+              }
+
+              browser.eval('JSON.stringify(window.mochaResults)', function(err, res) {
+                if (err) {
+                  debug("Failed to JSON.stringify(window.mochaResults): ", err);
+                  done(err);
+                  return;
+                }
+
+                // convert stringified object back to parsed
+                res = JSON.parse(res);
+
+                // add browser conf to be able to identify in the end callback
+                res.browser = conf;
+
+                debug('results %j', res);
+
+                // update Sauce Labs with custom test data
+                var data = {
+                  'passed': !res.failures,
+                  'public': self.public
+                };
+
+                // Only set custom-data if it is small enough (otherwise will fail in SauceLabs)
+                if (Buffer.byteLength(JSON.stringify(res.jsonReport), 'utf8') < 30000) {
+                  data['custom-data'] = { mocha: res.jsonReport };
+                }
+
+                var uri = ["https://", self.user, ":", self.key, "@saucelabs.com/rest", "/v1/", self.user, "/jobs/", browser.sessionID].join('');
+                debug('Updating Sauce Labs job: %s - %s', uri, JSON.stringify(data));
+
+                request({
+                  method: "PUT",
+                  uri: uri,
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify(data)
+                }, function (err, response, body) {
+                  if (err) {
+                    debug("Failed to update Sauce Labs job: ", err);
+                    done(err);
+                    return;
+                  }
+
+                  self.emit('end', conf, res);
+
+                  debug("Quitting browser: " + conf.browserName);
+
+                  browser.quit(function(err) {
+                    if (err) {
+                      debug("Failed to quit browser", err);
+                      done(err);
+                      return;
                     }
 
-					// wait until choco is ready
-					function doItAgain() {
+                    done(null, res);
+                  });
+                });
+              });
+            });
+          }
 
-						browser.eval('window.chocoReady', function(err, res) {
+          doItAgain();
+        });
+      });
+    });
+  });
 
-							if (res !== true) {
-								setTimeout(function() {
-									doItAgain();
-								}, 1000);
-								return;
-							}
-
-							if (err) {
-                                console.error("Failed to eval window.chocoReady: ", err);
-                                done(err);
-                                return;
-                            }
-
-
-							browser.eval('JSON.stringify(window.mochaResults)', function(err, res) {
-								if (err) {
-                                    console.error("Failed to JSON.stringify(window.mochaResults): ", err);
-                                    done(err);
-                                    return;
-                                }
-
-								// convert stringified object back to parsed
-								res = JSON.parse(res);
-
-								// add browser conf to be able to identify in the end callback
-								res.browser = conf;
-
-								debug('results %j', res);
-
-								// update Sauce Labs with custom test data
-								var data = {
-									'passed': !res.failures,
-                                    'public': self.public
-								};
-
-                                // Only set custom-data if it is small enough (otherwise will fail in SauceLabs)
-                                if (Buffer.byteLength(JSON.stringify(res.jsonReport), 'utf8') < 30000) {
-                                    data['custom-data'] = { mocha: res.jsonReport };
-                                }
-
-                                var uri = ["https://", self.user, ":", self.key, "@saucelabs.com/rest", "/v1/", self.user, "/jobs/", browser.sessionID].join('');
-                                debug('Updating Sauce Labs job: ' + uri, data);
-
-								request({
-									method: "PUT",
-									uri: uri,
-									headers: {'Content-Type': 'application/json'},
-									body: JSON.stringify(data)
-								}, function (err, response, body) {
-                                    if (err) {
-                                        console.error("Failed to update Sauce Labs job: ", err);
-                                        done(err);
-                                        return;
-                                    }
-
-									self.emit('end', conf, res);
-
-                                    console.log("Quitting browser: " + conf.browserName);
-
-									browser.quit(function(err) {
-                                        if (err) {
-                                            console.error("Failed to quit browser", err);
-                                            done(err);
-                                            return;
-                                        }
-
-									    done(null, res);
-                                    });
-								});
-							});
-						});
-					}
-
-					doItAgain();
-				});
-			});
-		});
-	});
-
-    console.log("End of batch");
-	batch.end(fn);
+  debug("End of batch");
+  batch.end(fn);
 };
 
 module.exports = MochaSauce;
